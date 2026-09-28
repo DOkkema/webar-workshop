@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>WebAR & IoT Workshop Template</title>
+
+  <!-- ================================================================= -->
+  <!-- 1. EXTERNE BIBLIOTHEKEN (NIET AANPASSEN)                          -->
+  <!-- ================================================================= -->
+
+  <script src="js/aframe.min.js"></script>
+  <script src="js/aframe-ar.js"></script>
+  <script src="js/mqttws31.min.js"></script>
+
+  <!-- ================================================================= -->
+  <!-- 2. STYLING (OVERLAY KNOPPEN & STATUSBAR)                          -->
+  <!-- ================================================================= -->
+  <style>
+    /* Algemene instellingen voor het scherm */
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    /* Statusbalk bovenaan het scherm (MQTT-status) */
+    #status-bar {
+      position: fixed;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.8);
+      color: #00ffcc;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: bold;
+      z-index: 1000;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    }
+
+    /* Paneel met live sensordata (linksboven) */
+    #sensor-panel {
+      position: fixed;
+      top: 50px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.75);
+      color: white;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      z-index: 1000;
+      border-left: 4px solid #00ffcc;
+    }
+
+    /* Knoppenbalk onderaan het scherm (Actuatoren bedienen) */
+    #controls {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 12px;
+      z-index: 1000;
+    }
+
+    /* Stijl voor de actie-knoppen */
+    .btn {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      font-size: 15px;
+      font-weight: bold;
+      border-radius: 25px;
+      cursor: pointer;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .btn\:active {
+      transform: scale(0.95);
+    }
+
+    .btn-off {
+      background: #dc3545;
+    }
+
+    /* Instellingen-knop rechtsboven */
+    #btn-settings {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      z-index: 1001;
+      background: rgba(0, 0, 0, 0.8);
+      color: #00ffcc;
+      border: 1px solid #00ffcc;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    /* Dialoogvenster voor MQTT-instellingen */
+    #settings-modal {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: #222;
+      color: white;
+      padding: 20px;
+      border-radius: 10px;
+      z-index: 1002;
+      display: none;
+      width: 300px;
+    }
+
+    #settings-modal label {
+      display: block;
+      font-size: 12px;
+      margin-top: 10px;
+      margin-bottom: 3px;
+      color: #aaa;
+    }
+
+    #settings-modal input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px;
+      border-radius: 5px;
+      border: 1px solid #555;
+      background: #111;
+      color: white;
+      font-family: monospace;
+      font-size: 12px;
+    }
+
+    #settings-modal .modal-btns {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    #settings-modal .modal-btns button {
+      flex: 1;
+      padding: 8px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    #btn-save { background: #007bff; color: white; }
+    #btn-cancel { background: #555; color: white; }
+  </style>
+</head>
+
+<body>
+
+  <!-- ================================================================= -->
+  <!-- 3. GEBRUIKERSINTERFACE (2D OVERLAY OP HET SCHERM)                 -->
+  <!-- ================================================================= -->
+
+  <!-- Status van de MQTT verbinding -->
+  <div id="status-bar">MQTT: Verbinden...</div>
+
+  <!-- Live Sensordata weergave op het scherm -->
+  <div id="sensor-panel">
+    <strong>Live Sensordata:</strong><br>
+    Waarde: <span id="sensor-value">Wachten op data...</span>
+  </div>
+
+  <!-- Knoppen om acties te versturen naar de werkplaats -->
+  <div id="controls">
+    <!-- STUDENTEN TIP: Voeg hier eventueel extra knoppen toe! -->
+    <button id="btn-on" class="btn">Lamp AAN</button>
+    <button id="btn-off" class="btn btn-off">Lamp UIT</button>
+  </div>
+
+  <!-- Instellingen-knop en -dialoog voor MQTT (broker & topics) -->
+  <!-- WORKSHOPGEVER: verwijder dit blok (en sectie 5G + bijbehorende CSS)
+       voor de studentenversie, zodat topics niet per ongeluk omgegooid worden. -->
+  <button id="btn-settings">MQTT Instellingen</button>
+
+  <div id="settings-modal">
+    <strong>MQTT Instellingen</strong>
+    <label for="set-broker">Broker URL (wss://...)</label>
+    <input id="set-broker" type="text">
+    <label for="set-topic-sensor">Sensor topic (luisteren)</label>
+    <input id="set-topic-sensor" type="text">
+    <label for="set-topic-actuator">Actuator topic (versturen)</label>
+    <input id="set-topic-actuator" type="text">
+    <div class="modal-btns">
+      <button id="btn-save">Opslaan</button>
+      <button id="btn-cancel">Annuleren</button>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- 4. A-FRAME 3D SCENE & AR MARKER INSTELINGEN                        -->
+  <!-- ================================================================= -->
+  <!--
+    a-scene is de hoofdcontainer voor AR.
+    embedded arjs geeft aan dat we de camera van de telefoon gebruiken.
+    debugUIEnabled: false = geen debug-balk. Zet op 'true' als de marker
+    niet herkend wordt (toont confidence-waarden onderin het scherm).
+  -->
+  <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: true;">
+
+    <!-- TIJDELIJKE TEST: online Hiro-marker (verwijderen na de test!) -->
+    <a-marker type="pattern" patternUrl="https://raw.githubusercontent.com/jeromeetienne/AR.js/master/three.js/examples/marker-training/examples/pattern-files/pattern-hiro.patt" emitevents="true">
+      <a-box position="0 0.5 0" color="#ff00ff"></a-box>
+    </a-marker>
+
+    <!--
+      MARKER DEFINITIE:
+      Alles binnen <a-marker> verschijnt zodra de camera de ingestelde
+      pixel-marker ziet. Onderstaande regel verwijst naar patt_files/marker-01.patt
+      op de webserver (de map patt_files naast dit bestand).
+      STUDENTEN: verander hier het nummer naar jouw toegewezen marker (marker-01 t/m marker-05).
+    -->
+    <a-marker type="pattern" patternUrl="patt_files/marker-01.patt" emitevents="true">
+
+      <!-- =============================================================== -->
+      <!-- STUDENTEN OPDRACHT 1: 3D OBJECTEN TOEVOEGEN (PRIMITIVES)        -->
+      <!-- =============================================================== -->
+      <!--
+        Uitleg coördinaten system (position="X Y Z"):
+        X = Links (-) / Rechts (+)
+        Y = Hoogte boven marker (-) / (+)
+        Z = Naar je toe (+) / Van je af (-)
+      -->
+
+      <!-- Basis Vlak (Grondplaat boven de marker) -->
+      <a-plane position="0 0 0" rotation="-90 0 0" width="2" height="2" color="#222" opacity="0.8"></a-plane>
+
+      <!-- Voorbeeld 3D Kubus (De kleur kan dynamisch veranderen via MQTT!) -->
+      <a-box id="ar-cube" position="-0.5 0.5 0" color="#00ffcc" depth="0.5" height="0.5" width="0.5"></a-box>
+
+      <!-- Voorbeeld 3D Bol -->
+      <a-sphere id="ar-sphere" position="0.5 0.5 0" radius="0.3" color="#ff007f"></a-sphere>
+
+      <!-- 3D Tekst boven de marker (geeft live de sensorwaarde weer in AR) -->
+      <a-text id="ar-text" value="AR Ready" position="0 1.2 0" align="center" color="#ffffff" scale="1.5 1.5 1.5"></a-text>
+
+      <!-- STUDENTEN: VOEG HIER JULLIE EIGEN 3D VORMEN TOE -->
+      <!-- Voorbeeld: <a-cylinder position="0 0.5 -0.5" radius="0.2" height="0.8" color="yellow"></a-cylinder> -->
+
+    </a-marker>
+
+    <!-- AR Camera (Niet aanpassen) -->
+    <a-entity camera></a-entity>
+
+  </a-scene>
+
+  <!-- ================================================================= -->
+  <!-- 5. JAVASCRIPT: LOGICA & MQTT COMMUNICATIE                         -->
+  <!-- ================================================================= -->
+  <script>
+    // =================================================================
+    // SECTIE 5A: INSTELLINGEN (PAS HIER JE GROEPSNUMMER / TOPICS AAN)
+    // =================================================================
+    // Standaardwaarden; kunnen worden overschreven via de knop
+    // 'MQTT Instellingen' (wordt opgeslagen in de browser-cache).
+    const DEFAULT_MQTT_URL = "wss://192.168.1.46/mqtt";
+    const DEFAULT_GROEPS_ID = "AR1";
+
+    const GROEPS_ID = DEFAULT_GROEPS_ID;
+
+    // Gebruik opgeslagen instellingen uit localStorage, anders de standaarden
+    const MQTT_URL      = localStorage.getItem("mqtt_url")      || DEFAULT_MQTT_URL;
+    const TOPIC_SENSOR   = localStorage.getItem("mqtt_topic_sensor")   || ("workshop/" + GROEPS_ID + "/sensorData");
+    const TOPIC_ACTUATOR = localStorage.getItem("mqtt_topic_actuator") || ("workshop/" + GROEPS_ID + "/actuator");
+
+    // =================================================================
+    // SECTIE 5B: DOM ELEMENTEN OPHALEN (HTML KOOPELEN AAN SCRIPT)
+    // =================================================================
+    const statusBar   = document.getElementById("status-bar");
+    const sensorValue = document.getElementById("sensor-value");
+    const arCube      = document.getElementById("ar-cube");
+    const arText      = document.getElementById("ar-text");
+    const btnOn       = document.getElementById("btn-on");
+    const btnOff      = document.getElementById("btn-off");
+
+    // =================================================================
+    // SECTIE 5C: MQTT CLIENT INITIALISEREN
+    // =================================================================
+    const clientId = "WebClient_" + GROEPS_ID + "_" + Math.random().toString(16).substr(2, 8);
+    const client = new Paho.MQTT.Client(MQTT_URL, clientId);
+
+    // Registreer wat er moet gebeuren bij statusveranderingen
+    client.onConnectionLost = onConnectionLost;
+    client.onMessageArrived = onMessageArrived;
+
+    // Start de verbinding met de MQTT Broker op de NUC
+    console.log("Verbinden met MQTT broker...");
+    client.connect({
+      onSuccess: onConnect,
+      onFailure: onConnectFailure
+    });
+
+    // =================================================================
+    // SECTIE 5D: MQTT CALLBACK FUNCTIES (VERBINDING & ONTVANGEN)
+    // =================================================================
+
+    // Wordt uitgevoerd als de verbinding met de MQTT Broker gelukt is
+    function onConnect() {
+      console.log("MQTT Verbonden!");
+      statusBar.innerText = "MQTT: Verbonden (" + GROEPS_ID + ")";
+      statusBar.style.color = "#00ffcc";
+
+      // Abonneer op het sensor-topic van jouw groep
+      client.subscribe(TOPIC_SENSOR);
+      console.log("Gezabonneerd op topic: " + TOPIC_SENSOR);
+    }
+
+    // Wordt uitgevoerd als de verbinding mislukt
+    function onConnectFailure(responseObject) {
+      console.error("MQTT Fout: " + responseObject.errorMessage);
+      statusBar.innerText = "MQTT: Verbinding Mislukt";
+      statusBar.style.color = "#ff3333";
+    }
+
+    // Wordt uitgevoerd als de verbinding wegvalt
+    // NIEUW: probeert na 3 seconden automatisch opnieuw te verbinden
+    function onConnectionLost(responseObject) {
+      if (responseObject.errorCode !== 0
