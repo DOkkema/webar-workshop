@@ -79,7 +79,7 @@
       transition: background 0.2s, transform 0.1s;
     }
 
-    .btn\:active {
+    .btn:active {
       transform: scale(0.95);
     }
 
@@ -227,7 +227,7 @@
       <!-- STUDENTEN OPDRACHT 1: 3D OBJECTEN TOEVOEGEN (PRIMITIVES)        -->
       <!-- =============================================================== -->
       <!--
-        Uitleg coördinaten system (position="X Y Z"):
+        Uitleg coÃ¶rdinaten system (position="X Y Z"):
         X = Links (-) / Rechts (+)
         Y = Hoogte boven marker (-) / (+)
         Z = Naar je toe (+) / Van je af (-)
@@ -326,4 +326,132 @@
     // Wordt uitgevoerd als de verbinding wegvalt
     // NIEUW: probeert na 3 seconden automatisch opnieuw te verbinden
     function onConnectionLost(responseObject) {
-      if (responseObject.errorCode !== 0
+      if (responseObject.errorCode !== 0) {
+        console.warn("Verbinding verloren: " + responseObject.errorMessage);
+        statusBar.innerText = "MQTT: Verbinding Verloren";
+        statusBar.style.color = "#ff9900";
+
+        // Auto-reconnect: na 3 seconden opnieuw proberen
+        setTimeout(function() {
+          console.log("Opnieuw verbinden...");
+          statusBar.innerText = "MQTT: Opnieuw verbinden...";
+          client.connect({
+            onSuccess: onConnect,
+            onFailure: onConnectFailure
+          });
+        }, 3000);
+      }
+    }
+
+    // =================================================================
+    // SECTIE 5E: SENSORDATA ONTVANGEN & AR REAGEREN (SUBSCRIBE)
+    // =================================================================
+    // Deze functie draait automatisch zodra er een nieuw bericht binnenkomt via MQTT!
+    function onMessageArrived(message) {
+      const payload = message.payloadString;
+      console.log("Nieuwe data ontvangen op [" + message.destinationName + "]: " + payload);
+
+      // 1. Update de 2D status op het telefoonscherm
+      sensorValue.innerText = payload;
+
+      // 2. Update de 3D tekst in Augmented Reality
+      arText.setAttribute("value", "Data: " + payload);
+
+      // ===============================================================
+      // STUDENTEN OPDRACHT 2: AR REACTIES MAAKEN OP BASIS VAN DATA
+      // ===============================================================
+      // Voorbeeld: Verander de kleur van de kubus op basis van ontvangen waarde
+      // (groen bij "AAN" of waarde > 50, rood bij "UIT" of waarde <= 50)
+      if (payload === "AAN" || parseFloat(payload) > 50) {
+        arCube.setAttribute("color", "#00ff00"); // Groen
+      } else if (payload === "UIT" || parseFloat(payload) <= 50) {
+        arCube.setAttribute("color", "#ff0000"); // Rood
+      } else {
+        // NIEUW: waarschuwen in de console bij onverwachte waarden
+        console.warn("Onverwachte waarde ontvangen, standaardkleur gebruikt: " + payload);
+        arCube.setAttribute("color", "#00ffcc"); // Standaard cyaan
+      }
+    }
+
+    // =================================================================
+    // SECTIE 5F: DATA VERSTUREN NAAR ACTUATOREN (PUBLISH)
+    // =================================================================
+    // Functie om een MQTT bericht te versturen
+    function sendMQTT(topic, payloadText) {
+      if (client.isConnected()) {
+        const message = new Paho.MQTT.Message(payloadText);
+        message.destinationName = topic;
+        client.send(message);
+        console.log("Bericht verzonden naar " + topic + ": " + payloadText);
+      } else {
+        alert("Geen MQTT verbinding!");
+      }
+    }
+
+    // Koppel de HTML-knoppen aan het versturen van MQTT berichten
+    btnOn.addEventListener("click", function() {
+      sendMQTT(TOPIC_ACTUATOR, "AAN");
+    });
+
+    btnOff.addEventListener("click", function() {
+      sendMQTT(TOPIC_ACTUATOR, "UIT");
+    });
+
+    // =================================================================
+    // SECTIE 5G: MQTT INSTELLINGEN-DIALOOG (knop rechtsboven)
+    // WORKSHOPGEVER: verwijder deze sectie voor de studentenversie
+    // =================================================================
+    const btnSettings = document.getElementById("btn-settings");
+    const settingsModal = document.getElementById("settings-modal");
+    const setBroker = document.getElementById("set-broker");
+    const setTopicSensor = document.getElementById("set-topic-sensor");
+    const setTopicActuator = document.getElementById("set-topic-actuator");
+
+    // Dialoog openen: vul de velden met de huidige waarden
+    btnSettings.addEventListener("click", function() {
+      setBroker.value = MQTT_URL;
+      setTopicSensor.value = TOPIC_SENSOR;
+      setTopicActuator.value = TOPIC_ACTUATOR;
+      settingsModal.style.display = "block";
+    });
+
+    document.getElementById("btn-cancel").addEventListener("click", function() {
+      settingsModal.style.display = "none";
+    });
+
+    // Opslaan: naar localStorage schrijven en pagina herladen
+    document.getElementById("btn-save").addEventListener("click", function() {
+      localStorage.setItem("mqtt_url", setBroker.value.trim());
+      localStorage.setItem("mqtt_topic_sensor", setTopicSensor.value.trim());
+      localStorage.setItem("mqtt_topic_actuator", setTopicActuator.value.trim());
+      settingsModal.style.display = "none";
+      location.reload(); // herstart de pagina zodat de nieuwe instellingen actief worden
+    });
+
+  </script>
+
+  <!-- ================================================================= -->
+  <!-- 6. TIJDELIJK: MOBIEL DEBUG-VENSTER (verwijderen na de test!)       -->
+  <!-- Toont console-berichten op het scherm, zodat je op een telefoon    -->
+  <!-- zonder USB-verbinding kunt zien wat er misgaat.                   -->
+  <!-- ================================================================= -->
+  <script>
+    (function() {
+      const box = document.createElement("div");
+      box.id = "mobile-debug";
+      box.style.cssText = "position:fixed;bottom:60px;left:5px;right:5px;max-height:30%;overflow-y:auto;background:rgba(0,0,0,0.85);color:#0f0;font:11px monospace;padding:6px;z-index:9999;white-space:pre-wrap;";
+      document.body.appendChild(box);
+      ["log", "warn", "error"].forEach(function(level) {
+        const orig = console[level].bind(console);
+        console[level] = function() {
+          orig.apply(null, arguments);
+          box.innerText += level.toUpperCase() + ": " + Array.from(arguments).join(" ") + "\n";
+        };
+      });
+      window.addEventListener("error", function(e) {
+        box.innerText += "UNCAUGHT: " + e.message + "\n";
+      });
+    })();
+  </script>
+</body>
+</html>
