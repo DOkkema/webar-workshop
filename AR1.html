@@ -89,75 +89,8 @@
     .btn-off {
       background: #dc3545;
     }
-
-    /* Instellingen-knop rechtsboven */
-    #btn-settings {
-      position: fixed;
-      top: 10px;
-      right: 10px;
-      z-index: 1001;
-      background: rgba(0, 0, 0, 0.8);
-      color: #00ffcc;
-      border: 1px solid #00ffcc;
-      border-radius: 8px;
-      padding: 8px 12px;
-      font-size: 14px;
-      cursor: pointer;
-    }
-
-    /* Dialoogvenster voor MQTT-instellingen */
-    #settings-modal {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      background: #222;
-      color: white;
-      padding: 20px;
-      border-radius: 10px;
-      z-index: 1002;
-      display: none;
-      width: 300px;
-    }
-
-    #settings-modal label {
-      display: block;
-      font-size: 12px;
-      margin-top: 10px;
-      margin-bottom: 3px;
-      color: #aaa;
-    }
-
-    #settings-modal input {
-      width: 100%;
-      box-sizing: border-box;
-      padding: 6px;
-      border-radius: 5px;
-      border: 1px solid #555;
-      background: #111;
-      color: white;
-      font-family: monospace;
-      font-size: 12px;
-    }
-
-    #settings-modal .modal-btns {
-      display: flex;
-      gap: 10px;
-      margin-top: 15px;
-    }
-
-    #settings-modal .modal-btns button {
-      flex: 1;
-      padding: 8px;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      font-weight: bold;
-    }
-
-    #btn-save { background: #007bff; color: white; }
-    #btn-cancel { background: #555; color: white; }
   </style>
+
 </head>
 
 <body>
@@ -182,25 +115,6 @@
     <button id="btn-off" class="btn btn-off">Lamp UIT</button>
   </div>
 
-  <!-- Instellingen-knop en -dialoog voor MQTT (broker & topics) -->
-  <!-- WORKSHOPGEVER: verwijder dit blok (en sectie 5G + bijbehorende CSS)
-       voor de studentenversie, zodat topics niet per ongeluk omgegooid worden. -->
-  <button id="btn-settings">MQTT Instellingen</button>
-
-  <div id="settings-modal">
-    <strong>MQTT Instellingen</strong>
-    <label for="set-broker">Broker URL (wss://...)</label>
-    <input id="set-broker" type="text">
-    <label for="set-topic-sensor">Sensor topic (luisteren)</label>
-    <input id="set-topic-sensor" type="text">
-    <label for="set-topic-actuator">Actuator topic (versturen)</label>
-    <input id="set-topic-actuator" type="text">
-    <div class="modal-btns">
-      <button id="btn-save">Opslaan</button>
-      <button id="btn-cancel">Annuleren</button>
-    </div>
-  </div>
-
   <!-- ================================================================= -->
   <!-- 4. A-FRAME 3D SCENE & AR MARKER INSTELINGEN                        -->
   <!-- ================================================================= -->
@@ -212,7 +126,7 @@
     debugUIEnabled: false = geen debug-balk. Zet op 'true' als de marker
     niet herkend wordt (toont confidence-waarden onderin het scherm).
   -->
-  <a-scene embedded arjs="sourceType: webcam; detectionMode: mono_and_matrix; matrixCodeType: 3x3; debugUIEnabled: true;">
+  <a-scene embedded arjs="sourceType: webcam; detectionMode: mono_and_matrix; matrixCodeType: 3x3; debugUIEnabled: false;">
 
     <!--
       MARKER DEFINITIE (BARCODE):
@@ -262,8 +176,7 @@
     // =================================================================
     // SECTIE 5A: INSTELLINGEN (PAS HIER JE GROEPSNUMMER / TOPICS AAN)
     // =================================================================
-    // Standaardwaarden; kunnen worden overschreven via de knop
-    // 'MQTT Instellingen' (wordt opgeslagen in de browser-cache).
+    // Standaardwaarden voor broker en topics.
     const DEFAULT_MQTT_URL = "wss://192.168.1.46/mqtt";
     const DEFAULT_GROEPS_ID = "AR1";
 
@@ -397,61 +310,6 @@
       sendMQTT(TOPIC_ACTUATOR, "UIT");
     });
 
-    // =================================================================
-    // SECTIE 5G: MQTT INSTELLINGEN-DIALOOG (knop rechtsboven)
-    // WORKSHOPGEVER: verwijder deze sectie voor de studentenversie
-    // =================================================================
-    const btnSettings = document.getElementById("btn-settings");
-    const settingsModal = document.getElementById("settings-modal");
-    const setBroker = document.getElementById("set-broker");
-    const setTopicSensor = document.getElementById("set-topic-sensor");
-    const setTopicActuator = document.getElementById("set-topic-actuator");
-
-    // Dialoog openen: vul de velden met de huidige waarden
-    btnSettings.addEventListener("click", function() {
-      setBroker.value = MQTT_URL;
-      setTopicSensor.value = TOPIC_SENSOR;
-      setTopicActuator.value = TOPIC_ACTUATOR;
-      settingsModal.style.display = "block";
-    });
-
-    document.getElementById("btn-cancel").addEventListener("click", function() {
-      settingsModal.style.display = "none";
-    });
-
-    // Opslaan: naar localStorage schrijven en pagina herladen
-    document.getElementById("btn-save").addEventListener("click", function() {
-      localStorage.setItem("mqtt_url", setBroker.value.trim());
-      localStorage.setItem("mqtt_topic_sensor", setTopicSensor.value.trim());
-      localStorage.setItem("mqtt_topic_actuator", setTopicActuator.value.trim());
-      settingsModal.style.display = "none";
-      location.reload(); // herstart de pagina zodat de nieuwe instellingen actief worden
-    });
-
-  </script>
-
-  <!-- ================================================================= -->
-  <!-- 6. TIJDELIJK: MOBIEL DEBUG-VENSTER (verwijderen na de test!)       -->
-  <!-- Toont console-berichten op het scherm, zodat je op een telefoon    -->
-  <!-- zonder USB-verbinding kunt zien wat er misgaat.                   -->
-  <!-- ================================================================= -->
-  <script>
-    (function() {
-      const box = document.createElement("div");
-      box.id = "mobile-debug";
-      box.style.cssText = "position:fixed;bottom:60px;left:5px;right:5px;max-height:30%;overflow-y:auto;background:rgba(0,0,0,0.85);color:#0f0;font:11px monospace;padding:6px;z-index:9999;white-space:pre-wrap;";
-      document.body.appendChild(box);
-      ["log", "warn", "error"].forEach(function(level) {
-        const orig = console[level].bind(console);
-        console[level] = function() {
-          orig.apply(null, arguments);
-          box.innerText += level.toUpperCase() + ": " + Array.from(arguments).join(" ") + "\n";
-        };
-      });
-      window.addEventListener("error", function(e) {
-        box.innerText += "UNCAUGHT: " + e.message + "\n";
-      });
-    })();
   </script>
 </body>
 </html>
