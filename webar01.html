@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>WebAR & IoT Workshop</title>
+
+  <!-- ================================================================= -->
+  <!-- BIBLIOTHEKEN (NIET AANPASSEN)                                     -->
+  <!-- Dit zijn voorgeschreven programma-onderdelen:                     -->
+  <!--   1. A-Frame  = maakt 3D objecten in de browser                   -->
+  <!--   2. AR.js    = plakt die 3D objecten op de marker via de camera   -->
+  <!--   3. Paho MQTT= laat de pagina praten met de MQTT-broker           -->
+  <!-- ================================================================= -->
+  <script src="https://aframe.io/releases/1.0.0/aframe.min.js"></script>
+  <script src="https://raw.githack.com/jeromeetienne/AR.js/2.1.4/aframe/build/aframe-ar.js"></script>
+  <script src="js/mqttws31.min.js"></script>
+
+  <!-- ================================================================= -->
+  <!-- STYLING: hoe de 2D onderdelen op het scherm eruitzien              -->
+  <!-- (Dit is geen AR - dit zijn gewone schermelementen)                -->
+  <!-- ================================================================= -->
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    /* [STAP 3] Statusbalk: MQTT verbindingsstatus (bovenin midden) */
+    #status-bar {
+      position: fixed;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.8);
+      color: #00ffcc;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: bold;
+      z-index: 1000;
+    }
+
+    /* [STAP 3] Sensordata-paneel: toont de actuele waarde uit het topic.
+       De titel van dit paneel is de naam van het topic. */
+    #sensor-panel {
+      position: fixed;
+      top: 50px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.75);
+      color: white;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      z-index: 1000;
+      border-left: 4px solid #00ffcc;
+      max-width: 60vw;
+    }
+    #sensor-panel .topic-naam {
+      font-weight: bold;
+      color: #00ffcc;
+      font-size: 12px;
+      word-break: break-all;
+    }
+    #sensor-panel .sensor-waarde {
+      font-size: 20px;
+      font-weight: bold;
+    }
+
+    /* [STAP 2/6] Knoppenbalk onderaan het scherm */
+    #controls {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 12px;
+      z-index: 1000;
+    }
+
+    .btn {
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      font-size: 15px;
+      font-weight: bold;
+      border-radius: 25px;
+      cursor: pointer;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+
+    .btn:active {
+      transform: scale(0.95);
+    }
+
+    /* [STAP 2/6] De twee kleur-knoppen.
+       Deze kleuren komen overeen met de LED-kleuren van stap 6:
+       Groen knop  = LED kleur groen (0,255,0)
+       Rood knop   = LED kleur rood  (255,0,0) */
+    #btn-groen { background: #00aa00; }   /* donkergroen zodat tekst leesbaar blijft */
+    #btn-rood  { background: #cc0000; }   /* donkerrood idem */
+
+    /* [STAP 3] Instellingen-knop (rechtsboven) + dialoogvenster */
+    #btn-settings {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      z-index: 1001;
+      background: rgba(0, 0, 0, 0.8);
+      color: #00ffcc;
+      border: 1px solid #00ffcc;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    #settings-modal {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: #222;
+      color: white;
+      padding: 20px;
+      border-radius: 10px;
+      z-index: 1002;
+      display: none;
+      width: 300px;
+    }
+
+    #settings-modal label {
+      display: block;
+      font-size: 12px;
+      margin-top: 10px;
+      margin-bottom: 3px;
+      color: #aaa;
+    }
+
+    #settings-modal input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px;
+      border-radius: 5px;
+      border: 1px solid #555;
+      background: #111;
+      color: white;
+      font-family: monospace;
+      font-size: 12px;
+    }
+
+    #settings-modal .modal-btns {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    #settings-modal .modal-btns button {
+      flex: 1;
+      padding: 8px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    #btn-save { background: #007bff; color: white; }
+    #btn-cancel { background: #555; color: white; }
+  </style>
+</head>
+
+<body>
+
+  <!-- ================================================================= -->
+  <!-- 2D OVERLAY OP HET SCHERM (geen AR)                                -->
+  <!-- ================================================================= -->
+
+  <!-- [STAP 3] Statusbalk: verbindingsstatus van MQTT -->
+  <div id="status-bar">MQTT: Nog niet actief in deze stap</div>
+
+  <!-- [STAP 3] Sensordata-paneel: actuele waarde uit het topic.
+       De titel (topic-naam) wordt automatisch gevuld door het script. -->
+  <div id="sensor-panel">
+    <span class="topic-naam" id="topic-naam">-</span><br>
+    Waarde: <span class="sensor-waarde" id="sensor-waarde">-</span>
+  </div>
+
+  <!-- [STAP 2/6] Knoppenbalk: twee kleurknoppen.
+       In STAP 2 veranderen ze de kleur van het 3D-object op marker 2.
+       In STAP 6 sturen ze daarnaast ook een bericht naar de Raspberry Pi. -->
+  <div id="controls">
+    <button id="btn-groen" class="btn">GROEN</button>
+    <button id="btn-rood"  class="btn">ROOD</button>
+  </div>
+
+  <!-- [STAP 3] Instellingen-knop + dialoog: hiermee kun je makkelijk
+       de broker en de topics wijzigen zonder de code aan te passen. -->
+  <button id="btn-settings">MQTT Instellingen</button>
+
+  <div id="settings-modal">
+    <strong>MQTT Instellingen</strong>
+    <label for="set-broker">Broker URL (wss://...)</label>
+    <input id="set-broker" type="text">
+    <label for="set-topic-sensor">Sensor topic (luisteren, stap 3/4/5)</label>
+    <input id="set-topic-sensor" type="text">
+    <label for="set-topic-led">LED topic (versturen, stap 6)</label>
+    <input id="set-topic-led" type="text">
+    <div class="modal-btns">
+      <button id="btn-save">Opslaan</button>
+      <button id="btn-cancel">Annuleren</button>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- AR SCENE: hieronder staan de markers en 3D objecten               -->
+  <!-- ================================================================= -->
+  <!--
+    UITLEG OVER DEZE REGEL:
+    - embedded arjs    : we gebruiken de camera van de telefoon
+    - detectionMode    : mono_and_matrix = we herkennen barcode-markers
+    - matrixCodeType    : de prints zijn 3x3 barcodes (zie printsheet)
+    - debugUIEnabled   : false = geen debug-balk onderin het scherm.
+                         Zet op 'true' als de marker niet herkend wordt.
+  -->
+  <a-scene embedded arjs="sourceType: webcam; detectionMode: mono_and_matrix; matrixCodeType: 3x3; debugUIEnabled: false;">
+
+    <!-- ================================================================ -->
+    <!-- [STAP 1] MARKER 1: PROJECTIE                                     -->
+    <!-- ================================================================ -->
+    <!--
+      Wat je hier ziet:
+      - <a-marker ... value="1">  = dit blok hoort bij barcode-marker 1
+      - <a-box>  = een 3D kubus
+      - <a-sphere> = een 3D bol
+      - position="X Y Z":
+          X = links (-) / rechts (+)
+          Y = hoogte: 0 = op de marker, 0.5 = een halve meter erboven
+          Z = naar je toe (+) / van je af (-)
+      - color = de kleur als hexcode (#RRGGBB).
+        STUDENTEN: zoek zelf een leuke kleur op, bijv. op
+        https://www.w3schools.com/colors/colors_hexadecimal.asp
+    -->
+    <a-marker type="barcode" value="1" emitevents="true">
+      <!-- Kubus: half links van het midden, half boven de marker -->
+      <a-box position="-0.4 0.4 0" color="#ff6600" depth="0.5" height="0.5" width="0.5"></a-box>
+      <!-- Bol: half rechts van het midden, half boven de marker -->
+      <a-sphere position="0.4 0.4 0" radius="0.3" color="#ff6600"></a-sphere>
+      <!-- Tekst zodat je meteen ziet dat dit de juiste marker is -->
+      <a-text value="STAP 1: Projectie" position="0 1.1 0" align="center" color="#ffffff" scale="1.2 1.2 1.2"></a-text>
+    </a-marker>
+
+    <!-- ================================================================ -->
+    <!-- [STAP 2] MARKER 2: INTERACTIE (knoppen veranderen de kleur)      -->
+    <!-- ================================================================ -->
+    <!--
+      Wat je hier ziet:
+      - Een kubus met het label "stap2-kubus".
+        De twee knoppen onderin het scherm (GROEN / ROOD) veranderen
+        de kleur van deze kubus. Dat gebeurt in het SCRIPT hieronder,
+        bij het blok [STAP 2].
+      - De kleuren van de knoppen komen overeen met de LED-kleuren
+        van STAP 6: groen = (0,255,0), rood = (255,0,0).
+    -->
+    <a-marker type="barcode" value="2" emitevents="true">
+      <!-- id="stap2-kubus": het script vindt dit object via deze naam -->
+      <a-box id="stap2-kubus" position="0 0.5 0" color="#808080" depth="0.6" height="0.6" width="0.6"></a-box>
+      <a-text value="STAP 2: Interactie" position="0 1.1 0" align="center" color="#ffffff" scale="1.2 1.2 1.2"></a-text>
+    </a-marker>
+
+    <!-- MARKER 3: nog niet in gebruik (STAP 3 heeft geen marker nodig;
+         het gaat daar alleen om de MQTT-verbinding en het paneel op
+         het scherm). Als je later een extra opdracht wil, kan dat hier. -->
+
+    <!-- ================================================================ -->
+    <!-- [STAP 4 + 5] MARKER 4: PROJECTIE VAN MQTT-WAARDES + KLEUR       -->
+    <!-- ================================================================ -->
+    <!--
+      Wat je hier ziet:
+      - Een blok (a-box) met daarop een tekst (a-text).
+        De tekst toont de ACTUELE waarde uit het MQTT-topic
+        (bijv. de temperatuur). Het script vernieuwt deze tekst
+        automatisch zodra er een nieuw bericht binnenkomt.
+      - De kleur van het blok verandert in STAP 5 mee met de waarde:
+          GROEN  = waarde onder 22
+          GEEL   = waarde van 22 t/m 27
+          ROOD   = waarde boven 27
+        (Bijv. graden Celsius. STUDENTEN: pas deze grenzen aan in het
+         script-blok [STAP 5] als je andere drempels wil.)
+      - De projectie "plakt" op de marker: waar de print staat, staat
+        het blok.
+    -->
+    <a-marker type="barcode" value="4" emitevents="true">
+      <!-- Het blok zelf; id="stap4-blok" zodat het script het kan vinden -->
+      <a-box id="stap4-blok" position="0 0.5 0" color="#00ff00" depth="1" height="1" width="1"></a-box>
+      <!-- De tekst OP het blok: id="stap4-tekst".
+           De tekst staat iets vóór het vlak van het blok (z=0.51) zodat
+           hij niet "in" het blok verdwijnt. -->
+      <a-text id="stap4-tekst" value="-" position="0 0.51 0" align="center" color="#000000" scale="0.8 0.8 0.8" side="double"></a-text>
+      <a-text value="STAP 4/5: MQTT waarde" position="0 1.3 0" align="center" color="#ffffff" scale="1.2 1.2 1.2"></a-text>
+    </a-marker>
+
+    <!-- MARKER 5: nog niet in gebruik. -->
+
+    <!-- De AR-camera. Niet aanpassen. -->
+    <a-entity camera></a-entity>
+
+  </a-scene>
+
+  <!-- ================================================================= -->
+  <!-- SCRIPT: hier staat wat de knoppen en MQTT doen.                    -->
+  <!-- De blokken staan in dezelfde volgorde als de opdrachten (1 t/m 6). -->
+  <!-- ================================================================= -->
+  <script>
+
+    // ===================================================================
+    // [STAP 1] PROJECTIE
+    // ===================================================================
+    // Voor stap 1 is GEEN script nodig: de kubus en de bol op marker 1
+    // staan volledig in de HTML hierboven. Het enige wat je als student
+    // doet, is de kleur (color="#ff6600") aanpassen naar een eigen keuze.
+    // Niks te programmeren - gewoon kijken hoe AR.js werkt!
+
+    // ===================================================================
+    // [STAP 2] INTERACTIE: knoppen veranderen de kleur van de kubus
+    // ===================================================================
+    // UITLEG:
+    // - document.getElementById("naam") zoekt een onderdeel van de pagina.
+    //   "btn-groen" is de GROEN-knop onderin het scherm.
+    // - addEventListener("click", ...) betekent: ALS er geklikt wordt,
+    //   DAN draai de functie die erachter staat.
+    // - setAttribute("color", ...) zet de kleur van het 3D-object.
+
+    const stap2Kubus = document.getElementById("stap2-kubus");
+    const btnGroen   = document.getElementById("btn-groen");
+    const btnRood    = document.getElementById("btn-rood");
+
+    // KLEUREN die we in stap 2 én stap 6 gebruiken:
+    const KLEUR_GROEN = "#00ff00";   // AR-kleur groen
+    const KLEUR_ROOD  = "#ff0000";   // AR-kleur rood
+    const LED_GROEN   = "0,255,0";   // LED-kleur groen (voor de Sense HAT)
+    const LED_ROOD    = "255,0,0";   // LED-kleur rood  (voor de Sense HAT)
+
+    // Wat gebeurt er als je op GROEN klikt?
+    btnGroen.addEventListener("click", function() {
+      // [STAP 2] verander de kleur van de kubus op marker 2
+      stap2Kubus.setAttribute("color", KLEUR_GROEN);
+
+      // [STAP 6] stuur daarnaast een bericht naar de Raspberry Pi.
+      // Let op: pas actief zodra stap 6 is gemaakt (hieronder in het
+      // script-blok van stap 6 wordt de functie stuurNaarPi aangemaakt;
+      // tot die tijd doet de 'if' eronder nog niks).
+      if (typeof stuurNaarPi === "function") {
+        stuurNaarPi(LED_GROEN);
+      }
+    });
+
+    // Wat gebeurt er als je op ROOD klikt?
+    btnRood.addEventListener("click", function() {
+      // [STAP 2] verander de kleur van de kubus op marker 2
+      stap2Kubus.setAttribute("color", KLEUR_ROOD);
+
+      // [STAP 6] zie uitleg bij de groene knop
+      if (typeof stuurNaarPi === "function") {
+        stuurNaarPi(LED_ROOD);
+      }
+    });
+
+    // ===================================================================
+    // [STAP 3] MQTT VERBINDEN: luisteren naar een topic
+    // ===================================================================
+    // UITLEG:
+    // - MQTT is een soort "radiozender/ontvanger": apparaten sturen
+    //   berichten naar een centrale server (de BROKER), en andere
+    //   apparaten kunnen die berichten afvangen door zich te
+    //   ABONNEREN op een onderwerp (TOPIC).
+    // - Wij verbinden met de broker, abonneren ons op het sensor-topic
+    //   en tonen elke nieuwe waarde in het paneel linksboven.
+    //
+    // INSTELLINGEN: pas hier je eigen waarden in (of gebruik later de
+    // knop 'MQTT Instellingen' rechtsboven, die bewaart je keuzes).
+
+    const DEFAULT_MQTT_URL  = "wss://192.168.1.46/mqtt";
+    const DEFAULT_GROEPS_ID = "AR1";
+
+    const GROEPS_ID = DEFAULT_GROEPS_ID;
+
+    // Opgeslagen instellingen gebruiken (van de instellingen-knop),
+    // anders de standaardwaarden hierboven.
+    const MQTT_URL     = localStorage.getItem("mqtt_url")         || DEFAULT_MQTT_URL;
+    const TOPIC_SENSOR = localStorage.getItem("mqtt_topic_sensor") || ("workshop/" + GROEPS_ID + "/sensorData");
+    const TOPIC_LED    = localStorage.getItem("mqtt_topic_led")    || ("workshop/" + GROEPS_ID + "/led");
+
+    // De onderdelen van het scherm die we nodig hebben
+    const statusBar     = document.getElementById("status-bar");
+    const topicNaam     = document.getElementById("topic-naam");
+    const sensorWaarde  = document.getElementById("sensor-waarde");
+
+    // Toon meteen de naam van het topic in de titel van het paneel
+    topicNaam.innerText = TOPIC_SENSOR;
+
+    // Maak de MQTT-verbinding:
+    // - Paho.MQTT.Client = het "adresboek" van onze MQTT-verbinding
+    // - clientId = een unieke naam zodat de broker ons herkent
+    const clientId = "WebClient_" + GROEPS_ID + "_" + Math.random().toString(16).substr(2, 8);
+    const client = new Paho.MQTT.Client(MQTT_URL, clientId);
+
+    // Zeg welke functies er gedraaid moeten worden bij gebeurtenissen:
+    client.onConnectionLost = onConnectionLost;      // verbinding weggevallen
+    client.onMessageArrived = onMessageArrived;      // nieuw bericht binnen
+
+    // Start de verbinding
+    console.log("Verbinden met MQTT broker...");
+    client.connect({
+      onSuccess: onConnect,        // gelukt -> deze functie draait
+      onFailure: onConnectFailure  // mislukt -> deze functie draait
+    });
+
+    // --- Wat gebeurt er als de verbinding LUKT? ---
+    function onConnect() {
+      statusBar.innerText = "MQTT: Verbonden (" + GROEPS_ID + ")";
+      statusBar.style.color = "#00ffcc";
+
+      // Abonneer op het sensor-topic: vanaf nu komen alle berichten
+      // van dit topic binnen bij onMessageArrived (stap 4/5).
+      client.subscribe(TOPIC_SENSOR);
+      console.log("Geabonneerd op topic: " + TOPIC_SENSOR);
+    }
+
+    // --- Wat gebeurt er als de verbinding MISLUKT? ---
+    function onConnectFailure(responseObject) {
+      console.error("MQTT fout: " + responseObject.errorMessage);
+      statusBar.innerText = "MQTT: Verbinding mislukt";
+      statusBar.style.color = "#ff3333";
+    }
+
+    // --- Wat gebeurt er als de verbinding WEGVALT? ---
+    // We proberen het na 3 seconden automatisch opnieuw.
+    function onConnectionLost(responseObject) {
+      if (responseObject.errorCode !== 0) {
+        console.warn("Verbinding verloren: " + responseObject.errorMessage);
+        statusBar.innerText = "MQTT: Verbinding verloren";
+        statusBar.style.color = "#ff9900";
+
+        setTimeout(function() {
+          statusBar.innerText = "MQTT: Opnieuw verbinden...";
+          client.connect({
+            onSuccess: onConnect,
+            onFailure: onConnectFailure
+          });
+        }, 3000);
+      }
+    }
+
+    // --- Instellingen-dialoog (knop rechtsboven) ---
+    // Hiermee kun je zonder code aan te passen de broker en topics
+    // wijzigen. Wordt bewaard in de browser (localStorage) zodat het
+    // ook na herladen nog geldig is.
+    const btnSettings   = document.getElementById("btn-settings");
+    const settingsModal = document.getElementById("settings-modal");
+    const setBroker     = document.getElementById("set-broker");
+    const setTopicSensor= document.getElementById("set-topic-sensor");
+    const setTopicLed   = document.getElementById("set-topic-led");
+
+    btnSettings.addEventListener("click", function() {
+      // Open het venster en vul de velden met de huidige waarden
+      setBroker.value = MQTT_URL;
+      setTopicSensor.value = TOPIC_SENSOR;
+      setTopicLed.value = TOPIC_LED;
+      settingsModal.style.display = "block";
+    });
+
+    document.getElementById("btn-cancel").addEventListener("click", function() {
+      settingsModal.style.display = "none";
+    });
+
+    document.getElementById("btn-save").addEventListener("click", function() {
+      // Bewaar de nieuwe waarden en herlaad de pagina
+      localStorage.setItem("mqtt_url", setBroker.value.trim());
+      localStorage.setItem("mqtt_topic_sensor", setTopicSensor.value.trim());
+      localStorage.setItem("mqtt_topic_led", setTopicLed.value.trim());
+      settingsModal.style.display = "none";
+      location.reload();
+    });
+
+    // ===================================================================
+    // [STAP 4] PROJECTIE VAN MQTT-WAARDES op marker 4
+    // ===================================================================
+    // UITLEG:
+    // Deze functie draait AUTOMATISCH bij elk nieuw bericht op het
+    // sensor-topic (kijk bij [STAP 3]: daar staat client.subscribe).
+    // - message.payloadString = de tekst van het bericht (bijv. "21.4")
+    // - We zetten die tekst in het 2D-paneel én in de 3D-tekst op het
+    //   blok bij marker 4. Daardoor "plakt" de waarde op de marker.
+
+    const stap4Blok  = document.getElementById("stap4-blok");
+    const stap4Tekst = document.getElementById("stap4-tekst");
+
+    function onMessageArrived(message) {
+      const payload = message.payloadString;  // de ontvangen waarde
+      console.log("Nieuwe data op [" + message.destinationName + "]: " + payload);
+
+      // 1. Update het paneel op het scherm (2D)
+      sensorWaarde.innerText = payload;
+
+      // 2. Update de tekst op het blok bij marker 4 (3D)
+      stap4Tekst.setAttribute("value", payload);
+
+      // 3. Ga door naar [STAP 5]: pas de kleur van het blok aan
+      pasKleurAan(payload);
+    }
+
+    // ===================================================================
+    // [STAP 5] DYNAMISCHE VISUALISATIE: kleur volgt de waarde
+    // ===================================================================
+    // UITLEG:
+    // De waarde (bijv. temperatuur) bepaalt de kleur van het blok:
+    //   onder 22      -> GROEN   (alles prima)
+    //   22 t/m 27     -> GEEL    (aandacht)
+    //   boven 27      -> ROOD    (alarm!)
+    // STUDENTEN: pas de twee grenzen hieronder aan naar eigen keuze.
+
+    const GRENS_GROEN = 22;   // onder deze waarde: groen
+    const GRENS_ROOD  = 27;    // boven deze waarde: rood (ertussen: geel)
+
+    function pasKleurAan(waardeAlsTekst) {
+      // De tekst omzetten naar een getal, zodat we kunnen vergelijken
+      const waarde = parseFloat(waardeAlsTekst);
+
+      // Als het geen getal is (bijv. "AAN" of "hallo"), niks doen
+      if (isNaN(waarde)) {
+        return;
+      }
+
+      if (waarde < GRENS_GROEN) {
+        stap4Blok.setAttribute("color", "#00ff00");   // groen
+      } else if (waarde > GRENS_ROOD) {
+        stap4Blok.setAttribute("color", "#ff0000");   // rood
+      } else {
+        stap4Blok.setAttribute("color", "#ffff00");   // geel
+      }
+    }
+
+    // ===================================================================
+    // [STAP 6] MQTT STUREN: knoppen sturen een bericht naar de Pi
+    // ===================================================================
+    // UITLEG:
+    // De knoppen GROEN en ROOD (van STAP 2) sturen nu óók een bericht
+    // naar het LED-topic. De Raspberry Pi met Sense HAT luistert daarop
+    // en zet alle LEDs in de gevraagde kleur.
+    //
+    // AFSPRAKE (format) voor het bericht:
+    //   De tekst van het bericht is "R,G,B" - de drie getallen zijn de
+    //   hoeveelheid ROOD, GROEN en BLAUW (0 t/m 255).
+    //     "0,255,0"   = alle LEDs groen
+    //     "255,0,0"   = alle LEDs rood
+    //   Het Python-script op de Pi moet dit formaat uitlezen, bijv.:
+    //     r, g, b = [int(x) for x in bericht.split(",")]
+    //     sense.set_pixels([(r, g, b)] * 64)
+    //
+    // De kleuren komen overeen met STAP 2: druk je op GROEN, dan wordt
+    // de kubus groen EN gaan de LEDs groen.
+
+    function stuurNaarPi(kleurAlsRGB) {
+      // Alleen versturen als de MQTT-verbinding echt tot stand is gekomen
+      if (!client.isConnected()) {
+        alert("Geen MQTT-verbinding! Verbind eerst met de broker.");
+        return;
+      }
+
+      // Maak het bericht en geef aan op welk topic het moet
+      const bericht = new Paho.MQTT.Message(kleurAlsRGB);
+      bericht.destinationName = TOPIC_LED;
+
+      // Verstuur het
+      client.send(bericht);
+      console.log("Verzonden naar " + TOPIC_LED + ": " + kleurAlsRGB);
+    }
+
+  </script>
+</body>
+</html>
