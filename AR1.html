@@ -8,9 +8,12 @@
   <!-- ================================================================= -->
   <!-- 1. EXTERNE BIBLIOTHEKEN (NIET AANPASSEN)                          -->
   <!-- ================================================================= -->
+  <!-- Let op: AR.js versie 3.4.5 crasht bij het laden van patterns op    -->
+  <!-- telefoons. Daarom is hier de bewezen werkende combinatie           -->
+  <!-- A-Frame 1.0.0 + AR.js 2.1.4 via CDN gezet.                        -->
 
-  <script src="js/aframe.min.js"></script>
-  <script src="js/aframe-ar.js"></script>
+  <script src="https://aframe.io/releases/1.0.0/aframe.min.js"></script>
+  <script src="https://raw.githack.com/jeromeetienne/AR.js/2.1.4/aframe/build/aframe-ar.js"></script>
   <script src="js/mqttws31.min.js"></script>
 
   <!-- ================================================================= -->
