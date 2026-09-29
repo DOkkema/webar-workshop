@@ -207,24 +207,21 @@
   <!--
     a-scene is de hoofdcontainer voor AR.
     embedded arjs geeft aan dat we de camera van de telefoon gebruiken.
+    detectionMode mono_and_matrix + matrixCodeType 3x3 = barcode-markers
+    (geen .patt-bestanden nodig; het laden daarvan crashte overal).
     debugUIEnabled: false = geen debug-balk. Zet op 'true' als de marker
     niet herkend wordt (toont confidence-waarden onderin het scherm).
   -->
-  <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: true;">
-
-    <!-- TIJDELIJKE TEST: online Hiro-marker (verwijderen na de test!) -->
-    <a-marker type="pattern" patternUrl="https://raw.githubusercontent.com/jeromeetienne/AR.js/master/three.js/examples/marker-training/examples/pattern-files/pattern-hiro.patt" emitevents="true">
-      <a-box position="0 0.5 0" color="#ff00ff"></a-box>
-    </a-marker>
+  <a-scene embedded arjs="sourceType: webcam; detectionMode: mono_and_matrix; matrixCodeType: 3x3; debugUIEnabled: true;">
 
     <!--
-      MARKER DEFINITIE:
-      Alles binnen <a-marker> verschijnt zodra de camera de ingestelde
-      pixel-marker ziet. Onderstaande regel verwijst naar patt_files/marker-01.patt
-      op de webserver (de map patt_files naast dit bestand).
-      STUDENTEN: verander hier het nummer naar jouw toegewezen marker (marker-01 t/m marker-05).
+      MARKER DEFINITIE (BARCODE):
+      type="barcode" + value="<nummer>" = de ingebouwde 3x3-matrixcode.
+      Geen patternUrl nodig! De prints staan in het printsheet
+      (barcode markers 1 t/m 5, map 3x3 uit de ARToolKit-collectie).
+      STUDENTEN: verander hier het nummer naar jouw toegewezen marker (1 t/m 5).
     -->
-    <a-marker type="pattern" patternUrl="patt_files/marker-01.patt" emitevents="true">
+    <a-marker type="barcode" value="1" emitevents="true">
 
       <!-- =============================================================== -->
       <!-- STUDENTEN OPDRACHT 1: 3D OBJECTEN TOEVOEGEN (PRIMITIVES)        -->
