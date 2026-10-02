@@ -402,19 +402,42 @@
     // Maak de MQTT-verbinding:
     // - Paho.MQTT.Client = het "adresboek" van onze MQTT-verbinding
     // - clientId = een unieke naam zodat de broker ons herkent
+    //
+    // BEVEILIGING: met een ongeldig broker-adres crasht Paho normaal het
+    // hele script — inclusief de instellingen-knop, en dan kom je er
+    // niet meer in om de fout te herstellen. Met try/catch vangen we
+    // de fout af: de app blijft werken, alleen MQTT doet niks, en je
+    // kunt via de knop 'MQTT Instellingen' het adres herstellen.
     const clientId = "WebClient_" + GROEPS_ID + "_" + Math.random().toString(16).substr(2, 8);
-    const client = new Paho.MQTT.Client(MQTT_URL, clientId);
 
-    // Zeg welke functies er gedraaid moeten worden bij gebeurtenissen:
-    client.onConnectionLost = onConnectionLost;      // verbinding weggevallen
-    client.onMessageArrived = onMessageArrived;      // nieuw bericht binnen
+    let client = null;   // begint als 'nog geen verbinding'
 
-    // Start de verbinding
-    console.log("Verbinden met MQTT broker...");
-    client.connect({
-      onSuccess: onConnect,        // gelukt -> deze functie draait
-      onFailure: onConnectFailure  // mislukt -> deze functie draait
-    });
+    try {
+      client = new Paho.MQTT.Client(MQTT_URL, clientId);
+
+      client.onConnectionLost = onConnectionLost;   // verbinding weggevallen
+      client.onMessageArrived = onMessageArrived;  // nieuw bericht binnen
+
+      // Start de verbinding
+      console.log("Verbinden met MQTT broker...");
+      client.connect({
+        onSuccess: onConnect,        // gelukt -> deze functie draait
+        onFailure: onConnectFailure  // mislukt -> deze functie draait
+      });
+    } catch (fout) {
+      // Een ongeldig adres mag de app NOOIT stilleggen:
+      // duidelijke melding, knoppen blijven werken.
+      statusBar.innerText = "MQTT: Fout in instellingen";
+      statusBar.style.color = "#ff3333";
+      console.error("MQTT kon niet starten: " + fout.message
+        + " — controleer de broker-URL via de knop 'MQTT Instellingen'.");
+    }
+
+    // Hulpfunctie: is er een werkende verbinding?
+    // (knoppen uit stap 6 gebruiken dit: sturen alleen als er verbinding is)
+    function isVerbonden() {
+      return client !== null && client.isConnected();
+    }
 
     // --- Wat gebeurt er als de verbinding LUKT? ---
     function onConnect() {
@@ -562,9 +585,10 @@
     // de kubus groen EN gaan de LEDs groen.
 
     function stuurNaarPi(kleurAlsRGB) {
-      // Alleen versturen als de MQTT-verbinding echt tot stand is gekomen
-      if (!client.isConnected()) {
-        alert("Geen MQTT-verbinding! Verbind eerst met de broker.");
+      // Gebruik de hulpfunctie isVerbonden(): ook als de client nooit
+      // is aangemaakt (ongeldig adres) crasht de app hier niet.
+      if (!isVerbonden()) {
+        alert("Geen MQTT-verbinding! Controleer de broker-URL via 'MQTT Instellingen'.");
         return;
       }
 
